@@ -24,7 +24,7 @@ class KeypointProposer:
         transformed_rgb, rgb, points, masks, shape_info = self._preprocess(rgb, points, masks)
         # get features
         features_flat = self._get_features(transformed_rgb, shape_info)
-        # for each mask, cluster in feature space to get meaningful regions, and uske their centers as keypoint candidates
+        # for each mask, cluster in feature space to get meaningful regions, and use their centers as keypoint candidates
         candidate_keypoints, candidate_pixels, candidate_rigid_group_ids = self._cluster_features(points, features_flat, masks)
         # exclude keypoints that are outside of the workspace
         within_space = filter_points_by_bounds(candidate_keypoints, self.bounds_min, self.bounds_max, strict=True)
@@ -46,6 +46,11 @@ class KeypointProposer:
         return candidate_keypoints, projected
 
     def _preprocess(self, rgb, points, masks):
+        """
+        resize rbg to make it compatible with dinov2 input size
+        """
+        masks = masks.cpu().numpy() if isinstance(masks, torch.Tensor) else masks
+        rgb = rgb.cpu().numpy() if isinstance(rgb, torch.Tensor) else rgb
         # convert masks to binary masks
         masks = [masks == uid for uid in np.unique(masks)]
         # ensure input shape is compatible with dinov2

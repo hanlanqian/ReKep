@@ -79,7 +79,7 @@ def objective(opt_vars,
         debug_dict['ik_feasible'].append(ik_result.success)
         ik_cost += 20.0 * (ik_result.num_descents / max_iterations)
         if ik_result.success:
-            reset_reg = np.linalg.norm(ik_result.cspace_position[:-1] - reset_joint_pos[:-1])
+            reset_reg = np.linalg.norm(ik_result.cspace_position[:-1] - reset_joint_pos[:-1].detach().numpy())
             reset_reg = np.clip(reset_reg, 0.0, 3.0)
         else:
             reset_reg = 3.0
@@ -122,11 +122,12 @@ class PathSolver:
     - sequence of intermediate control points
     """
 
-    def __init__(self, config, ik_solver, reset_joint_pos):
+    def __init__(self, config, ik_solver, reset_joint_pos, seeds = 10):
         self.config = config
         self.ik_solver = ik_solver
         self.reset_joint_pos = reset_joint_pos
         self.last_opt_result = None
+        self.seeds = seeds
         # warmup
         self._warmup()
 
@@ -283,6 +284,7 @@ class PathSolver:
                     'method': 'SLSQP',
                     'options': self.config['minimizer_options'],
                 },
+                seed=self.seeds
             )
         # use gradient-based local optimization for the following iterations
         else:

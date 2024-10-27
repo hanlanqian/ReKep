@@ -44,8 +44,8 @@ class Main:
             robot_description_path=self.env.robot.robot_arm_descriptor_yamls[self.env.robot.default_arm],
             robot_urdf_path=self.env.robot.urdf_path,
             eef_name=self.env.robot.eef_link_names[self.env.robot.default_arm],
-            reset_joint_pos=self.env.reset_joint_pos,
-            world2robot_homo=self.env.world2robot_homo,
+            reset_joint_pos=self.env.reset_joint_pos,   # (8, ) vector
+            world2robot_homo=self.env.world2robot_homo, # 4x4 matrix
         )
         # initialize solvers
         self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, self.env.reset_joint_pos)
@@ -58,8 +58,8 @@ class Main:
         self.env.reset()
         cam_obs = self.env.get_cam_obs()
         rgb = cam_obs[self.config['vlm_camera']]['rgb']
-        points = cam_obs[self.config['vlm_camera']]['points']
-        mask = cam_obs[self.config['vlm_camera']]['seg']
+        points = cam_obs[self.config['vlm_camera']]['points'] # cloud points caculated by camera paras and Depth info
+        mask = cam_obs[self.config['vlm_camera']]['seg'] # indicate the class of each pixel (should get from SAM in Experiments)
         # ====================================
         # = keypoint proposal and constraint generation
         # ====================================
@@ -119,6 +119,7 @@ class Main:
             # ====================================
             backtrack = False
             if self.stage > 1:
+                # check path constrains violation expect stage 1 (trace back if violating)
                 path_constraints = self.constraint_fns[self.stage]['path']
                 for constraints in path_constraints:
                     violation = constraints(self.keypoints[0], self.keypoints[1:])
@@ -274,7 +275,7 @@ if __name__ == "__main__":
     parser.add_argument('--apply_disturbance', action='store_true', help='apply disturbance to test the robustness')
     parser.add_argument('--visualize', action='store_true', help='visualize each solution before executing (NOTE: this is blocking and needs to press "ESC" to continue)')
     args = parser.parse_args()
-
+    
     if args.apply_disturbance:
         assert args.task == 'pen' and args.use_cached_query, 'disturbance sequence is only defined for cached scenario'
 

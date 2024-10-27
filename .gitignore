@@ -1,4 +1,6 @@
 *cache*
 **/__pycache__/**
 **/*.egg-info/
+videos/*
+.vscode/
 *.egg

@@ -97,7 +97,7 @@ def pixel_to_3d_points(depth_image, intrinsics, extrinsics):
     cx, cy = intrinsics[0, 2], intrinsics[1, 2]
 
     # Convert pixel coordinates to normalized camera coordinates
-    z = depth_image
+    z = depth_image.detach().numpy()
     x = (i - cx) * z / fx
     y = (j - cy) * z / fy
 

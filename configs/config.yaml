@@ -16,7 +16,8 @@ main:
 env:
   video_cache_size: 2000
   og_sim:
-    physics_frequency: 100
+    # original value: 100 -> AssertionError: Rendering dt (0.03333333333333333) must be a multiple of physics dt (0.01)
+    physics_frequency: 60
     action_frequency: 15
     
   scene:
@@ -104,6 +105,8 @@ constraint_generator:
   model: chatgpt-4o-latest
   temperature: 0.0
   max_tokens: 2048
+  openai_key: ${your_openai_key}
+
 
 visualizer:
   bounds_min: *bounds_min
