@@ -1,4 +1,9 @@
 *cache*
 **/__pycache__/**
 **/*.egg-info/
+videos/*
+.vscode/
 *.egg
+checkpoints/*
+vlm_query/2024*
+test*

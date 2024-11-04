@@ -23,10 +23,9 @@ from utils import (
     print_opt_debug_dict,
 )
 
-class Main:
-    def __init__(self, scene_file, config_path, visualize=False):
-        # global_config = get_config(config_path="./configs/config.yaml")
-        global_config = get_config(config_path)
+class MyMain:
+    def __init__(self, scene_file, visualize=False):
+        global_config = get_config(config_path="./configs/config.yaml")
         self.config = global_config['main']
         self.bounds_min = np.array(self.config['bounds_min'])
         self.bounds_max = np.array(self.config['bounds_max'])
@@ -37,7 +36,7 @@ class Main:
         torch.cuda.manual_seed(self.config['seed'])
         # initialize keypoint proposer and constraint generator
         self.sam2 = SAM(global_config['sam2'])
-        self.keypoint_proposer = KeypointProposer(global_config['keypoint_proposer'], visualize)
+        self.keypoint_proposer = KeypointProposer(global_config['keypoint_proposer'])
         self.constraint_generator = ConstraintGenerator(global_config['constraint_generator'])
         # initialize environment
         self.env = ReKepOGEnv(global_config['env'], scene_file, verbose=False)
@@ -272,118 +271,3 @@ class Main:
     
     def _execute_release_action(self):
         self.env.open_gripper()
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--task', type=str, default='pen', help='task to perform')
-    parser.add_argument('--use_cached_query', action='store_true', help='instead of querying the VLM, use the cached query')
-    parser.add_argument('--apply_disturbance', action='store_true', help='apply disturbance to test the robustness')
-    parser.add_argument('--visualize', action='store_true', help='visualize each solution before executing (NOTE: this is blocking and needs to press "ESC" to continue)')
-    parser.add_argument('--config', type=str, action='store', help='specify the config path')
-    args = parser.parse_args()
-    
-    if args.apply_disturbance:
-        assert args.task == 'pen' and args.use_cached_query, 'disturbance sequence is only defined for cached scenario'
-
-    # ====================================
-    # = pen task disturbance sequence
-    # ====================================
-    def stage1_disturbance_seq(env):
-        """
-        Move the pen in stage 0 when robot is trying to grasp the pen
-        """
-        pen = env.og_env.scene.object_registry("name", "pen_1")
-        holder = env.og_env.scene.object_registry("name", "pencil_holder_1")
-        # disturbance sequence
-        pos0, orn0 = pen.get_position_orientation()
-        pose0 = np.concatenate([pos0, orn0])
-        pos1 = pos0 + np.array([-0.08, 0.0, 0.0])
-        orn1 = T.quat_multiply(T.euler2quat(np.array([0, 0, np.pi/4])), orn0)
-        pose1 = np.concatenate([pos1, orn1])
-        pos2 = pos1 + np.array([0.10, 0.0, 0.0])
-        orn2 = T.quat_multiply(T.euler2quat(np.array([0, 0, -np.pi/2])), orn1)
-        pose2 = np.concatenate([pos2, orn2])
-        control_points = np.array([pose0, pose1, pose2])
-        pose_seq = spline_interpolate_poses(control_points, num_steps=25)
-        def disturbance(counter):
-            if counter < len(pose_seq):
-                pose = pose_seq[counter]
-                pos, orn = pose[:3], pose[3:]
-                pen.set_position_orientation(pos, orn)
-                counter += 1
-        counter = 0
-        while True:
-            yield disturbance(counter)
-            counter += 1
-    
-    def stage2_disturbance_seq(env):
-        """
-        Take the pen out of the gripper in stage 1 when robot is trying to reorient the pen
-        """
-        apply_disturbance = env.is_grasping()
-        pen = env.og_env.scene.object_registry("name", "pen_1")
-        holder = env.og_env.scene.object_registry("name", "pencil_holder_1")
-        # disturbance sequence
-        pos0, orn0 = pen.get_position_orientation()
-        pose0 = np.concatenate([pos0, orn0])
-        pose1 = np.array([-0.30, -0.15, 0.71, -0.7071068, 0, 0, 0.7071068])
-        control_points = np.array([pose0, pose1])
-        pose_seq = spline_interpolate_poses(control_points, num_steps=25)
-        def disturbance(counter):
-            if apply_disturbance:
-                if counter < 20:
-                    if counter > 15:
-                        env.robot.release_grasp_immediately()  # force robot to release the pen
-                    else:
-                        pass  # do nothing for the other steps
-                elif counter < len(pose_seq) + 20:
-                    env.robot.release_grasp_immediately()  # force robot to release the pen
-                    pose = pose_seq[counter - 20]
-                    pos, orn = pose[:3], pose[3:]
-                    pen.set_position_orientation(pos, orn)
-                    counter += 1
-        counter = 0
-        while True:
-            yield disturbance(counter)
-            counter += 1
-    
-    def stage3_disturbance_seq(env):
-        """
-        Move the holder in stage 2 when robot is trying to drop the pen into the holder
-        """
-        pen = env.og_env.scene.object_registry("name", "pen_1")
-        holder = env.og_env.scene.object_registry("name", "pencil_holder_1")
-        # disturbance sequence
-        pos0, orn0 = holder.get_position_orientation()
-        pose0 = np.concatenate([pos0, orn0])
-        pos1 = pos0 + np.array([-0.02, -0.15, 0.0])
-        orn1 = orn0
-        pose1 = np.concatenate([pos1, orn1])
-        control_points = np.array([pose0, pose1])
-        pose_seq = spline_interpolate_poses(control_points, num_steps=5)
-        def disturbance(counter):
-            if counter < len(pose_seq):
-                pose = pose_seq[counter]
-                pos, orn = pose[:3], pose[3:]
-                holder.set_position_orientation(pos, orn)
-                counter += 1
-        counter = 0
-        while True:
-            yield disturbance(counter)
-            counter += 1
-
-    task_list = {
-        'pen': {
-            'scene_file': './configs/og_scene_file_pen.json',
-            'instruction': 'reorient the white pen and drop it upright into the black pen holder',
-            'rekep_program_dir': './vlm_query/pen',
-            'disturbance_seq': {1: stage1_disturbance_seq, 2: stage2_disturbance_seq, 3: stage3_disturbance_seq},
-            },
-    }
-    task = task_list['pen']
-    scene_file = task['scene_file']
-    instruction = task['instruction']
-    main = Main(scene_file, config_path=args.config, visualize=args.visualize)
-    main.perform_task(instruction,
-                    rekep_program_dir=task['rekep_program_dir'] if args.use_cached_query else None,
-                    disturbance_seq=task.get('disturbance_seq', None) if args.apply_disturbance else None)

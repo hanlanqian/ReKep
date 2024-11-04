@@ -172,7 +172,7 @@ class ReKepOGEnv:
                             trimesh_object = mesh_prim_shape_to_trimesh_mesh(mesh.prim)
                         world_pose_w_scale = PoseAPI.get_world_pose_with_scale(mesh.prim_path)
                         trimesh_object.apply_transform(world_pose_w_scale)
-                        points_transformed = trimesh_object.sample(1000)
+                        points_transformed = trimesh_object.sample(1000) # sample points from mesh aspect
                         
                         # find closest point
                         dists = np.linalg.norm(points_transformed - keypoint, axis=1)
@@ -424,7 +424,7 @@ class ReKepOGEnv:
             save_path = os.path.join(save_dir, f'{datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.mp4')
         video_writer = imageio.get_writer(save_path, fps=30)
         for rgb in self.video_cache:
-            video_writer.append_data(rgb)
+            video_writer.append_data(rgb.detach().numpy())
         video_writer.close()
         return save_path
 
@@ -440,7 +440,7 @@ class ReKepOGEnv:
         current_rotmat = T.quat2mat(current_xyzw)
         target_rotmat = T.quat2mat(target_xyzw)
         # calculate position delta
-        pos_diff = (target_pos - current_pos).flatten()
+        pos_diff = (target_pos - current_pos.detach().numpy()).flatten()
         pos_error = np.linalg.norm(pos_diff)
         # calculate rotation delta
         rot_error = angle_between_rotmat(current_rotmat, target_rotmat)
@@ -453,6 +453,9 @@ class ReKepOGEnv:
         return False, pos_error, rot_error
 
     def _move_to_waypoint(self, target_pose_world, pos_threshold=0.02, rot_threshold=3.0, max_steps=10):
+        """
+        Move end-effector to a waypoint
+        """
         pos_errors = []
         rot_errors = []
         count = 0
@@ -465,10 +468,10 @@ class ReKepOGEnv:
             # convert world pose to robot pose
             target_pose_robot = np.dot(self.world2robot_homo, T.convert_pose_quat2mat(target_pose_world))
             # convert to relative pose to be used with the underlying controller
-            relative_position = target_pose_robot[:3, 3] - self.robot.get_relative_eef_position()
+            relative_position = target_pose_robot[:3, 3] - self.robot.get_relative_eef_position().detach().numpy()
             relative_quat = T.quat_distance(T.mat2quat(target_pose_robot[:3, :3]), self.robot.get_relative_eef_orientation())
             assert isinstance(self.robot, Fetch), "this action space is only for fetch"
-            action = np.zeros(12)  # first 3 are base, which we don't use
+            action = np.zeros(12)  # first 3 are base (x, y, z = 0, 0, 0), which we don't use
             action[4:7] = relative_position
             action[7:10] = T.quat2axisangle(relative_quat)
             action[10:] = [self.last_og_gripper_action, self.last_og_gripper_action]

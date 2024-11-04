@@ -33,6 +33,7 @@ def unnormalize_vars(normalized_vars, og_bounds):
 
 def calculate_collision_cost(poses, sdf_func, collision_points, threshold):
     assert poses.shape[1:] == (4, 4)
+    # use ee_pose to convert points from ee_frame to world frame
     transformed_pcs = batch_transform_points(collision_points, poses)
     transformed_pcs_flatten = transformed_pcs.reshape(-1, 3)  # [num_poses * num_points, 3]
     signed_distance = sdf_func(transformed_pcs_flatten) + threshold  # [num_poses * num_points]
@@ -83,6 +84,11 @@ def batch_transform_points(points, transforms):
 
 @njit(cache=True, fastmath=True)
 def get_samples_jitted(control_points_homo, control_points_quat, opt_interpolate_pos_step_size, opt_interpolate_rot_step_size):
+    """
+    get smooth trajectory by linear interpolating method and accelerate it by Numba library 
+    Args:
+        
+    """
     assert control_points_homo.shape[1:] == (4, 4)
     # calculate number of samples per segment
     num_samples_per_segment = np.empty(len(control_points_homo) - 1, dtype=np.int64)

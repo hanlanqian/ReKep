@@ -176,9 +176,10 @@ def quat_conjugate(quaternion):
     Returns:
         np.array: (x,y,z,w) quaternion conjugate
     """
+    quaternion_type = quaternion.detach().numpy().dtype if hasattr(quaternion, "detach") else quaternion.dtype
     return np.array(
         (-quaternion[0], -quaternion[1], -quaternion[2], quaternion[3]),
-        dtype=quaternion.dtype,
+        dtype=quaternion_type,
     )
 
 
@@ -455,9 +456,10 @@ def pose2mat(pose):
     Returns:
         np.array: 4x4 homogeneous matrix
     """
-    homo_pose_mat = np.zeros((4, 4), dtype=pose[0].dtype)
+    pose_type = pose[0].detach().numpy().dtype if hasattr(pose[0], "detach") else pose[0].dtype
+    homo_pose_mat = np.zeros((4, 4), dtype=pose_type) 
     homo_pose_mat[:3, :3] = quat2mat(pose[1])
-    homo_pose_mat[:3, 3] = np.array(pose[0], dtype=pose[0].dtype)
+    homo_pose_mat[:3, 3] = np.array(pose[0], dtype=pose_type)
     homo_pose_mat[3, 3] = 1.0
     return homo_pose_mat
 

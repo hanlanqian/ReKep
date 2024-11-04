@@ -7,7 +7,7 @@ from utils import filter_points_by_bounds
 from sklearn.cluster import MeanShift
 
 class KeypointProposer:
-    def __init__(self, config):
+    def __init__(self, config, visualize=False):
         self.config = config
         self.device = torch.device(self.config['device'])
         self.dinov2 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14').eval().to(self.device)
@@ -15,6 +15,7 @@ class KeypointProposer:
         self.bounds_max = np.array(self.config['bounds_max'])
         self.mean_shift = MeanShift(bandwidth=self.config['min_dist_bt_keypoints'], bin_seeding=True, n_jobs=32)
         self.patch_size = 14  # dinov2
+        self.visualize = visualize
         np.random.seed(self.config['seed'])
         torch.manual_seed(self.config['seed'])
         torch.cuda.manual_seed(self.config['seed'])
@@ -24,18 +25,28 @@ class KeypointProposer:
         transformed_rgb, rgb, points, masks, shape_info = self._preprocess(rgb, points, masks)
         # get features
         features_flat = self._get_features(transformed_rgb, shape_info)
-        # for each mask, cluster in feature space to get meaningful regions, and uske their centers as keypoint candidates
+        # for each mask, cluster in feature space to get meaningful regions, and use their centers as keypoint candidates
         candidate_keypoints, candidate_pixels, candidate_rigid_group_ids = self._cluster_features(points, features_flat, masks)
         # exclude keypoints that are outside of the workspace
         within_space = filter_points_by_bounds(candidate_keypoints, self.bounds_min, self.bounds_max, strict=True)
         candidate_keypoints = candidate_keypoints[within_space]
         candidate_pixels = candidate_pixels[within_space]
         candidate_rigid_group_ids = candidate_rigid_group_ids[within_space]
+        if self.visualize:
+            draw = rgb.cpu().numpy().copy().astype(np.uint8) if isinstance(rgb, torch.Tensor) else rgb.copy().astype(np.uint8)
+            for (y, x) in candidate_pixels:
+                cv2.circle(draw, (x, y), 3, (0, 0, 255), -1)
+            cv2.imwrite('./candidate.png', cv2.cvtColor(draw, cv2.COLOR_RGB2BGR))
         # merge close points by clustering in cartesian space
         merged_indices = self._merge_clusters(candidate_keypoints)
         candidate_keypoints = candidate_keypoints[merged_indices]
         candidate_pixels = candidate_pixels[merged_indices]
         candidate_rigid_group_ids = candidate_rigid_group_ids[merged_indices]
+        if self.visualize:
+            draw = rgb.cpu().numpy().copy().astype(np.uint8) if isinstance(rgb, torch.Tensor) else rgb.copy().astype(np.uint8)
+            for (y, x) in candidate_pixels:
+                cv2.circle(draw, (x, y), 3, (0, 0, 255), -1)
+            cv2.imwrite('./meanshift.png', cv2.cvtColor(draw, cv2.COLOR_RGB2BGR))
         # sort candidates by locations
         sort_idx = np.lexsort((candidate_pixels[:, 0], candidate_pixels[:, 1]))
         candidate_keypoints = candidate_keypoints[sort_idx]
@@ -46,6 +57,20 @@ class KeypointProposer:
         return candidate_keypoints, projected
 
     def _preprocess(self, rgb, points, masks):
+        """
+        resize rbg to make it compatible with dinov2 input size
+        """
+        if self.visualize:
+            # draw masks
+            masks_tmp = masks.cpu().numpy().copy() if isinstance(masks, torch.Tensor) else masks.copy()
+            colors = {i : np.random.random(3) * 255 for i in np.unique(masks_tmp)}
+            seg = np.zeros((masks.shape[0], masks.shape[1], 3), dtype=np.uint8)
+            for i in np.unique(masks_tmp):
+                seg[masks_tmp == i] = colors[i]
+            cv2.imwrite("./masks.png", seg)
+        
+        masks = masks.cpu().numpy() if isinstance(masks, torch.Tensor) else masks
+        rgb = rgb.cpu().numpy() if isinstance(rgb, torch.Tensor) else rgb
         # convert masks to binary masks
         masks = [masks == uid for uid in np.unique(masks)]
         # ensure input shape is compatible with dinov2
@@ -96,10 +121,24 @@ class KeypointProposer:
         features_dict = self.dinov2.forward_features(img_tensors)
         raw_feature_grid = features_dict['x_norm_patchtokens']  # float32 [num_cams, patch_h*patch_w, feature_dim]
         raw_feature_grid = raw_feature_grid.reshape(1, patch_h, patch_w, -1)  # float32 [num_cams, patch_h, patch_w, feature_dim]
+        if self.visualize:
+            from sklearn.decomposition import PCA
+            obj_features_flat = raw_feature_grid.reshape(patch_h * patch_w, -1).double()
+            (u, s, v) = torch.pca_lowrank(obj_features_flat, center=False)
+            features_pca = torch.mm(obj_features_flat, v[:, :3]).reshape(patch_h, patch_w, -1)
+            # feature_mean = (torch.mean(raw_feature_grid[0], dim = 2) + 1) / 2 * 255
+            cv2.imwrite("./dinov2_raw.png", features_pca.cpu().numpy().astype(np.uint8))
         # compute per-point feature using bilinear interpolation
         interpolated_feature_grid = interpolate(raw_feature_grid.permute(0, 3, 1, 2),  # float32 [num_cams, feature_dim, patch_h, patch_w]
                                                 size=(img_h, img_w),
                                                 mode='bilinear').permute(0, 2, 3, 1).squeeze(0)  # float32 [H, W, feature_dim]
+        if self.visualize:
+            from sklearn.decomposition import PCA
+            obj_features_flat = interpolated_feature_grid.reshape(img_h * img_w, -1).double()
+            (u, s, v) = torch.pca_lowrank(obj_features_flat, center=False)
+            features_pca = torch.mm(obj_features_flat, v[:, :3]).reshape(img_h, img_w, -1)
+            # feature_mean = (torch.mean(raw_feature_grid[0], dim = 2) + 1) / 2 * 255
+            cv2.imwrite("./dinov2_raw.png", features_pca.cpu().numpy().astype(np.uint8))
         features_flat = interpolated_feature_grid.reshape(-1, interpolated_feature_grid.shape[-1])  # float32 [H*W, feature_dim]
         return features_flat
 
@@ -136,9 +175,9 @@ class KeypointProposer:
             for cluster_id in range(self.config['num_candidates_per_mask']):
                 cluster_center = cluster_centers[cluster_id][:3]
                 member_idx = cluster_ids_x == cluster_id
-                member_points = feature_points[member_idx]
-                member_pixels = feature_pixels[member_idx]
-                member_features = features_pca[member_idx]
+                member_points = feature_points[member_idx] # the feature point 3D coordinate
+                member_pixels = feature_pixels[member_idx] # the feature point 2D coordinate
+                member_features = features_pca[member_idx] # the flatten feature of candidate
                 dist = torch.norm(member_features - cluster_center, dim=-1)
                 closest_idx = torch.argmin(dist)
                 candidate_keypoints.append(member_points[closest_idx])
