@@ -105,7 +105,7 @@ constraint_generator:
   model: chatgpt-4o-latest
   temperature: 0.0
   max_tokens: 2048
-  openai_key: 
+  openai_key: test
 
 
 visualizer:

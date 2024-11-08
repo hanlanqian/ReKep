@@ -7,3 +7,5 @@ videos/*
 checkpoints/*
 vlm_query/2024*
 test*
+configs/franka*
+configs/sam*

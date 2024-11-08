@@ -1,29 +1,37 @@
 """
 Adapted from OmniGibson and the Lula IK solver
 """
-import omnigibson.lazy as lazy
+import pybullet
+import pybullet_data
 import numpy as np
+from transform_utils import mat2quat
+
 
 class IKSolver:
     """
-    Class for thinly wrapping Lula IK solver
+    Class for thinly wrapping PyBullet IK solver
     """
 
     def __init__(
         self,
-        robot_description_path,
+        config,
         robot_urdf_path,
         eef_name,
         reset_joint_pos,
         world2robot_homo,
     ):
         # Create robot description, kinematics, and config
-        self.robot_description = lazy.lula.load_robot(robot_description_path, robot_urdf_path)
-        self.kinematics = self.robot_description.kinematics()
-        self.config = lazy.lula.CyclicCoordDescentIkConfig()
         self.eef_name = eef_name
         self.reset_joint_pos = reset_joint_pos
         self.world2robot_homo = world2robot_homo
+        self.config = config
+        # initiate with DIRECT mode PyBullet
+        pybullet.connect(pybullet.setAdditionalSearchPath)
+        pybullet.setAdditionalSearchPath(pybullet_data.getDataPath())
+        self.robot = pybullet.loadURDF(
+            robot_urdf_path, 
+            basePosition=self.world2robot_homo[:3, 3],
+            baseOrientation=mat2quat(world2robot_homo[:3, :3]))
 
     def solve(
         self,
@@ -52,18 +60,18 @@ class IKSolver:
             ik_results (lazy.lula.CyclicCoordDescentIkResult): IK result object containing the joint positions and other information.
         """
         # convert target pose to robot base frame
-        target_pose_robot = np.dot(self.world2robot_homo, target_pose_homo)
-        target_pose_pos = target_pose_robot[:3, 3]
-        target_pose_rot = target_pose_robot[:3, :3]
-        ik_target_pose = lazy.lula.Pose3(lazy.lula.Rotation3(target_pose_rot), target_pose_pos)
-        # Set the cspace seed and tolerance
-        initial_joint_pos = self.reset_joint_pos if initial_joint_pos is None else np.array(initial_joint_pos)
-        self.config.cspace_seeds = [initial_joint_pos]
-        self.config.position_tolerance = position_tolerance
-        self.config.orientation_tolerance = orientation_tolerance
-        self.config.ccd_position_weight = position_weight
-        self.config.ccd_orientation_weight = orientation_weight
-        self.config.max_num_descents = max_iterations
-        # Compute target joint positions
-        ik_results = lazy.lula.compute_ik_ccd(self.kinematics, ik_target_pose, self.eef_name, self.config)
+        # target_pose_robot = np.dot(self.world2robot_homo, target_pose_homo)
+        target_pose_pos = target_pose_homo[:3, 3]
+        target_pose_rot = target_pose_homo[:3, :3]
+        
+        ik_results = pybullet.calculateInverseKinematics(
+            self.robot,
+            self.eef_name,
+            targetPosition=target_pose_pos,
+            targetOrientation=mat2quat(target_pose_rot),
+            lowerLimits=self.config['joint_lower_limit'],
+            upperLimits=self.config['joint_upper_limit'],
+            maxNumIterations=max_iterations,
+        )
+        
         return ik_results

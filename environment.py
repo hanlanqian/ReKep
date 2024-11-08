@@ -71,8 +71,9 @@ class ReKepOGEnv:
         for _ in range(10): og.sim.step()
         # robot vars
         self.robot = self.og_env.robots[0]
-        dof_idx = np.concatenate([self.robot.trunk_control_idx,
-                                  self.robot.arm_control_idx[self.robot.default_arm]])
+        # dof_idx = np.concatenate([self.robot.trunk_control_idx,
+        #                           self.robot.arm_control_idx[self.robot.default_arm]])
+        dof_idx = np.concatenate([self.robot.arm_control_idx[self.robot.default_arm]])
         self.reset_joint_pos = self.robot.reset_joint_pos[dof_idx]
         self.world2robot_homo = T.pose_inv(T.pose2mat(self.robot.get_position_orientation()))
         # initialize cameras
