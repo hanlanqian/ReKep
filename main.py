@@ -11,7 +11,7 @@ from subgoal_solver import SubgoalSolver
 from path_solver import PathSolver
 from visualizer import Visualizer
 import transform_utils as T
-from omnigibson.robots.fetch import Fetch
+from omnigibson.robots.franka import FrankaPanda
 from sam_utils import SAM
 from utils import (
     bcolors,
@@ -40,9 +40,9 @@ class Main:
         self.keypoint_proposer = KeypointProposer(global_config['keypoint_proposer'], visualize)
         self.constraint_generator = ConstraintGenerator(global_config['constraint_generator'])
         # initialize environment
-        self.env = ReKepOGEnv(global_config['env'], scene_file, verbose=False)
+        self.env = ReKepOGEnv(global_config['env'], scene_file, verbose=visualize)
         # setup ik solver (for reachability cost)
-        assert isinstance(self.env.robot, Fetch), "The IK solver assumes the robot is a Fetch robot"
+        # assert isinstance(self.env.robot, FrankaPanda), "The IK solver assumes the robot is a Franka robot"
         ik_solver = IKSolver(
             robot_description_path=self.env.robot.robot_arm_descriptor_yamls[self.env.robot.default_arm],
             robot_urdf_path=self.env.robot.urdf_path,
@@ -63,7 +63,7 @@ class Main:
         rgb = cam_obs[self.config['vlm_camera']]['rgb']
         points = cam_obs[self.config['vlm_camera']]['points'] # cloud points caculated by camera paras and Depth info
         mask = cam_obs[self.config['vlm_camera']]['seg'] # indicate the class of each pixel (should get from SAM in Experiments)
-        _, seg = self.sam2.infer(rgb)
+        # _, seg = self.sam2.infer(rgb)
         
         # ====================================
         # = keypoint proposal and constraint generation
@@ -203,7 +203,7 @@ class Main:
         subgoal_pose_homo = T.convert_pose_quat2mat(subgoal_pose)
         # if grasp stage, back up a bit to leave room for grasping
         if self.is_grasp_stage:
-            subgoal_pose[:3] += subgoal_pose_homo[:3, :3] @ np.array([-self.config['grasp_depth'] / 2.0, 0, 0])
+            subgoal_pose[:3] += subgoal_pose_homo[:3, :3] @ (np.array(self.config['grasp_depth']) / -2.0)
         debug_dict['stage'] = self.stage
         print_opt_debug_dict(debug_dict)
         if self.visualize:
@@ -266,7 +266,7 @@ class Main:
     def _execute_grasp_action(self):
         pregrasp_pose = self.env.get_ee_pose()
         grasp_pose = pregrasp_pose.copy()
-        grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
+        grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ (np.array(self.config['grasp_depth']) / 2.0)
         grasp_action = np.concatenate([grasp_pose, [self.env.get_gripper_close_action()]])
         self.env.execute_action(grasp_action, precise=True)
     
@@ -376,7 +376,7 @@ if __name__ == "__main__":
         'pen': {
             'scene_file': './configs/og_scene_file_pen.json',
             'instruction': 'reorient the white pen and drop it upright into the black pen holder',
-            'rekep_program_dir': './vlm_query/pen',
+            'rekep_program_dir': './vlm_query/franka',
             'disturbance_seq': {1: stage1_disturbance_seq, 2: stage2_disturbance_seq, 3: stage3_disturbance_seq},
             },
     }

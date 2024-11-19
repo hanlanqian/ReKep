@@ -9,7 +9,8 @@ import imageio
 import omnigibson as og
 from omnigibson.macros import gm
 from omnigibson.utils.usd_utils import PoseAPI, mesh_prim_mesh_to_trimesh_mesh, mesh_prim_shape_to_trimesh_mesh
-from omnigibson.robots.fetch import Fetch
+# from omnigibson.robots.fetch import Fetch
+from omnigibson.robots.franka import FrankaPanda
 from omnigibson.controllers import IsGraspingState
 from og_utils import OGCamera
 from utils import (
@@ -51,7 +52,7 @@ def custom_clip_control(self, control):
         control[idx] = clipped_control[idx]
     return control
 
-Fetch._initialize = ManipulationRobot._initialize
+FrankaPanda._initialize = ManipulationRobot._initialize
 BaseController.clip_control = custom_clip_control
 
 class ReKepOGEnv:
@@ -71,8 +72,7 @@ class ReKepOGEnv:
         for _ in range(10): og.sim.step()
         # robot vars
         self.robot = self.og_env.robots[0]
-        dof_idx = np.concatenate([self.robot.trunk_control_idx,
-                                  self.robot.arm_control_idx[self.robot.default_arm]])
+        dof_idx = np.concatenate([self.robot.arm_control_idx[self.robot.default_arm]])
         self.reset_joint_pos = self.robot.reset_joint_pos[dof_idx]
         self.world2robot_homo = T.pose_inv(T.pose2mat(self.robot.get_position_orientation()))
         # initialize cameras
@@ -156,7 +156,7 @@ class ReKepOGEnv:
         self.keypoints = keypoints
         self._keypoint_registry = dict()
         self._keypoint2object = dict()
-        exclude_names = ['wall', 'floor', 'ceiling', 'table', 'fetch', 'robot']
+        exclude_names = ['wall', 'floor', 'ceiling', 'table', 'panda', 'robot']
         for idx, keypoint in enumerate(keypoints):
             closest_distance = np.inf
             for obj in self.og_env.scene.objects:
@@ -220,14 +220,35 @@ class ReKepOGEnv:
 
     def get_collision_points(self, noise=True):
         """
+        Samples and returns collision points of the gripper and any object held in the gripper.
+
+        This method performs the following steps:
+
+        - Iterates over all objects in the scene to find the robot's gripper and wrist links.
+        - For each collision mesh in these links:
+            - Converts the collision mesh to a `trimesh` object.
+            - Applies the world transformation, including scaling, to the mesh.
+            - Samples 1000 points from the mesh surface.
+        - Checks if there is an object held by the robot:
+            - Iterates over all collision meshes of the object in hand.
+            - Performs the same sampling and transformation as above.
+        - Concatenates all sampled points into a single NumPy array.
+
+        Parameters:
+            noise (bool): If `True`, adds noise to the sampled points. (Note: currently not implemented.)
+
+        Returns:
+            numpy.ndarray: A NumPy array of shape (N, 3), where N is the total number of sampled points,
+            containing the collision points in world coordinates.
+        
         Get the points of the gripper and any object in hand.
         """
         # add gripper collision points
         collision_points = []
         for obj in self.og_env.scene.objects:
-            if 'fetch' in obj.name.lower():
+            if 'panda' in obj.name.lower():
                 for name, link in obj.links.items():
-                    if 'gripper' in name.lower() or 'wrist' in name.lower():  # wrist_roll and wrist_flex
+                    if 'hand' in name.lower() or 'wrist' in name.lower():  # wrist_roll and wrist_flex
                         for collision_mesh in link.collision_meshes.values():
                             mesh_prim_path = collision_mesh.prim_path
                             mesh_type = collision_mesh.prim.GetPrimTypeInfo().GetTypeName()
@@ -265,7 +286,7 @@ class ReKepOGEnv:
         self.open_gripper()
         # moving arm to the side to unblock view 
         ee_pose = self.get_ee_pose()
-        ee_pose[:3] += np.array([0.0, -0.2, -0.1])
+        ee_pose[:3] += np.array([0.15, -0.2, -0.1])
         action = np.concatenate([ee_pose, [self.get_gripper_null_action()]])
         self.execute_action(action, precise=True)
         self.video_cache = []
@@ -286,21 +307,21 @@ class ReKepOGEnv:
         return self.get_ee_pose()[3:]
     
     def get_arm_joint_postions(self):
-        assert isinstance(self.robot, Fetch), "The IK solver assumes the robot is a Fetch robot"
+        assert isinstance(self.robot, FrankaPanda), "The IK solver assumes the robot is a Franka robot"
         arm = self.robot.default_arm
-        dof_idx = np.concatenate([self.robot.trunk_control_idx, self.robot.arm_control_idx[arm]])
+        dof_idx = np.concatenate([self.robot.arm_control_idx[arm]])
         arm_joint_pos = self.robot.get_joint_positions()[dof_idx]
         return arm_joint_pos
 
     def close_gripper(self):
         """
         Exposed interface: 1.0 for closed, -1.0 for open, 0.0 for no change
-        Internal OG interface: 1.0 for open, 0.0 for closed
+        Internal OG interface: 0.0 for open, 1.0 for closed (FrankaPanda differ from Fetch)
         """
         if self.last_og_gripper_action == 0.0:
             return
-        action = np.zeros(12)
-        action[10:] = [0, 0]  # gripper: float. 0. for closed, 1. for open.
+        action = np.zeros(7)
+        # action[-1] = -1.0  # gripper: float. 1. for closed, 0. for open.
         for _ in range(30):
             self._step(action)
         self.last_og_gripper_action = 0.0
@@ -308,8 +329,8 @@ class ReKepOGEnv:
     def open_gripper(self):
         if self.last_og_gripper_action == 1.0:
             return
-        action = np.zeros(12)
-        action[10:] = [1, 1]  # gripper: float. 0. for closed, 1. for open.
+        action = np.zeros(7)
+        action[-1] = 1.0
         for _ in range(30):
             self._step(action)
         self.last_og_gripper_action = 1.0
@@ -454,7 +475,7 @@ class ReKepOGEnv:
 
     def _move_to_waypoint(self, target_pose_world, pos_threshold=0.02, rot_threshold=3.0, max_steps=10):
         """
-        Move end-effector to a waypoint
+        Move end-effector to a waypoint for FrankaPanda
         """
         pos_errors = []
         rot_errors = []
@@ -470,11 +491,13 @@ class ReKepOGEnv:
             # convert to relative pose to be used with the underlying controller
             relative_position = target_pose_robot[:3, 3] - self.robot.get_relative_eef_position().detach().numpy()
             relative_quat = T.quat_distance(T.mat2quat(target_pose_robot[:3, :3]), self.robot.get_relative_eef_orientation())
-            assert isinstance(self.robot, Fetch), "this action space is only for fetch"
-            action = np.zeros(12)  # first 3 are base (x, y, z = 0, 0, 0), which we don't use
-            action[4:7] = relative_position
-            action[7:10] = T.quat2axisangle(relative_quat)
-            action[10:] = [self.last_og_gripper_action, self.last_og_gripper_action]
+            if isinstance(self.robot, FrankaPanda): # Franka Panda action space []
+                action = np.zeros(7)
+                action[:3] = relative_position
+                action[3:6] = T.quat2axisangle(relative_quat)
+                action[6] = self.last_og_gripper_action
+            else:
+                raise RuntimeError("this action space is only for FrankaPanda")
             # step the action
             _ = self._step(action=action)
             count += 1
@@ -506,3 +529,14 @@ class ReKepOGEnv:
             cam_id = int(cam_id)
             self.cams[cam_id] = OGCamera(self.og_env, cam_config[cam_id])
         for _ in range(10): og.sim.render()
+
+if __name__ == "__main__":
+    # for test _move_to_waypoint function
+    from main import get_config
+    config_path = "./configs/config_franka.yaml"
+    global_config = get_config(config_path)
+    env = ReKepOGEnv(global_config['env'], scene_file='./configs/og_scene_file_pen.json', verbose=True)
+    pose_1 = env.get_ee_pose()
+    env.reset()
+    curpose = env.get_ee_pose()
+    env._move_to_waypoint(curpose)

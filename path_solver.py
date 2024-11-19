@@ -34,6 +34,41 @@ def objective(opt_vars,
                 initial_joint_pos,
                 reset_joint_pos,
                 return_debug_dict=False):
+    """
+    Compute the total cost for path optimization.
+    This function calculates the objective cost for a given path defined by optimization variables.
+    It considers collision costs, path length, reachability costs, and path constraint violations.
+    Parameters:
+        opt_vars (np.ndarray): Optimization variables representing control points in normalized form.
+        og_bounds (tuple): Original bounds used for variable normalization.
+        start_pose (np.ndarray): Starting pose of the path as a 6D vector (position and Euler angles).
+        end_pose (np.ndarray): Ending pose of the path as a 6D vector (position and Euler angles).
+        keypoints_centered (np.ndarray): Centered keypoints of the object.
+        keypoint_movable_mask (np.ndarray): Boolean mask indicating movable keypoints.
+        path_constraints (list): List of functions representing path constraints.
+        sdf_func (callable): Signed distance function for collision checking.
+        collision_points_centered (np.ndarray): Centered collision points for the object.
+        opt_interpolate_pos_step_size (float): Step size for position interpolation.
+        opt_interpolate_rot_step_size (float): Step size for rotation interpolation.
+        ik_solver (IKSolver): Inverse kinematics solver instance.
+        initial_joint_pos (np.ndarray): Initial joint positions for the IK solver.
+        reset_joint_pos (np.ndarray): Joint positions used for regularization.
+        return_debug_dict (bool, optional): If True, returns a dictionary with debug information. Defaults to False.
+    Returns:
+        float: Total cost calculated for the path.
+        dict (optional): Debug information if `return_debug_dict` is True, containing:
+            - num_control_points (int): Number of control points.
+            - num_poses (int): Number of interpolated poses.
+            - collision_cost (float): Collision cost component.
+            - path_length_cost (float): Path length cost component.
+            - ik_pos_error (np.ndarray): Array of IK position errors for control points.
+            - ik_feasible (np.ndarray): Array indicating IK success for control points.
+            - ik_cost (float): IK cost component.
+            - reset_reg_cost (float): Regularization cost component.
+            - path_constraint_cost (float): Path constraint violation cost component.
+            - path_violation (list): List of path constraint violations.
+            - total_cost (float): Total cost calculated.
+    """            
 
     debug_dict = {}
     debug_dict['num_control_points'] = len(opt_vars) // 6

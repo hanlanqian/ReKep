@@ -1,0 +1,7 @@
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """The white pen is upright (parallel to the z-axis)."""
+    white_pen_kp = keypoints[2]
+    delta_z = white_pen_kp[2]
+    cost = np.abs(delta_z)  # Ensure the pen is upright along the z-axis
+    return cost
+

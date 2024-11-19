@@ -4,10 +4,10 @@ seed: &seed 0
 main:
   interpolate_pos_step_size: &interpolate_pos_step_size 0.05  # controls the density of the final returned path
   interpolate_rot_step_size: &interpolate_rot_step_size 0.34  # about 20 degrees
-  grasp_depth: 0.10
+  grasp_depth: [0.0, 0.0, 0.1]
   constraint_tolerance: 0.10  # for backtracking
-  bounds_min: &bounds_min [-0.45, -0.75, 0.698]
-  bounds_max: &bounds_max [0.10, 0.60, 1.2]
+  bounds_min: &bounds_min [-0.7, -1.0, 0.698]
+  bounds_max: &bounds_max [0.50, 0.80, 1.9]
   sdf_voxel_size: 0.01
   vlm_camera: 0
   action_steps_per_iter: 5
@@ -16,7 +16,6 @@ main:
 env:
   video_cache_size: 2000
   og_sim:
-    # original value: 100 -> AssertionError: Rendering dt (0.03333333333333333) must be a multiple of physics dt (0.01)
     physics_frequency: 60
     action_frequency: 15
     
@@ -32,17 +31,15 @@ env:
 
   robot:
     robot_config:
-      name: Fetch
+      name: Panda
       type: FrankaPanda
       obs_modalities: [rgb, depth]
       action_modalities: continuous
       action_normalize: False
-      position: [-0.8, 0.0, 0.]
+      position: [-0.8, 0.0, 0.5]
       grasping_mode: assisted
 
       controller_config:
-        base:
-          name: DifferentialDriveController
         arm_0:
           name: OperationalSpaceController
           kp: 250
@@ -50,8 +47,9 @@ env:
           damping_ratio: 0.6
         gripper_0:
           name: MultiFingerGripperController
-          command_input_limits: [0.0, 1.0]
-          mode: smooth
+          # command_input_limits: [0.0, 1.0]
+          # mode: independent
+          mode: binary
         camera:
           name: JointController
 
@@ -105,7 +103,7 @@ constraint_generator:
   model: chatgpt-4o-latest
   temperature: 0.0
   max_tokens: 2048
-  openai_key:
+  openai_key: 123123123
 
 
 visualizer:

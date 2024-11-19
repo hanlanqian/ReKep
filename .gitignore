@@ -7,3 +7,4 @@ videos/*
 checkpoints/*
 vlm_query/2024*
 test*
+configs/sam2*
